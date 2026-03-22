@@ -121,47 +121,89 @@ def set_note_body_by_applescript(folder_name, note_name, html_content):
 def markdown_to_simple_html(markdown):
     """
     将 Markdown 转换为简单的 HTML（保留基本格式和层次）
+    格式与 Apple Notes 原生格式保持一致
     """
     lines = markdown.split('\n')
-    html_parts = ['<div>']
+    html_parts = []
     current_paragraph = []
+    in_code_block = False
+    code_lines = []
+
+    def flush_paragraph():
+        """将当前段落写入 html_parts"""
+        nonlocal current_paragraph
+        if current_paragraph:
+            text = ' '.join(current_paragraph)
+            # 检查是否是代码行（以空格开头或包含等宽标记）
+            if text.startswith('    ') or text.startswith('\t'):
+                # 代码块
+                html_parts.append(f'<div><tt>{html.escape(text.strip())}</tt></div>')
+            else:
+                html_parts.append(f'<div>{text}</div>')
+            current_paragraph = []
 
     for line in lines:
+        stripped = line.strip()
+        
+        # 检查代码块标记
+        if stripped.startswith('```'):
+            if in_code_block:
+                # 结束代码块
+                code_content = '\n'.join(code_lines)
+                html_parts.append(f'<div><tt>{html.escape(code_content)}</tt></div>')
+                code_lines = []
+                in_code_block = False
+            else:
+                # 开始代码块
+                flush_paragraph()
+                in_code_block = True
+            continue
+        
+        if in_code_block:
+            code_lines.append(line)
+            continue
+        
+        # 处理 Markdown 格式
         if line.startswith('## '):
-            # 二级标题
-            if current_paragraph:
-                html_parts.append(' '.join(current_paragraph) + '<br>')
-                current_paragraph = []
+            # 二级标题 - 使用 <h3> 标签
+            flush_paragraph()
             title = line[3:].replace('**', '').strip()
-            html_parts.append(f'<br><b>{title}</b><br><br>')
-        elif line.startswith('- '):
+            html_parts.append(f'<div><b><h3>{title}</h3></b></div>')
+        elif line.startswith('### '):
+            # 三级标题
+            flush_paragraph()
+            title = line[4:].replace('**', '').strip()
+            html_parts.append(f'<div><b><h4>{title}</h4></b></div>')
+        elif line.startswith('- ') or line.startswith('* '):
             # 列表项
-            if current_paragraph:
-                html_parts.append(' '.join(current_paragraph) + '<br>')
-                current_paragraph = []
+            flush_paragraph()
             content = line[2:].replace('**', '').strip()
-            html_parts.append(f'<br>→ {content}')
+            html_parts.append(f'<div>→ {content}</div>')
         elif line.strip() == '':
             # 空行
-            if current_paragraph:
-                html_parts.append(' '.join(current_paragraph) + '<br><br>')
-                current_paragraph = []
-            if not html_parts[-1].endswith('<br><br>'):
-                html_parts.append('<br>')
+            flush_paragraph()
+            html_parts.append('<div><br></div>')
+        elif stripped.startswith('**') and stripped.endswith('**') and len(stripped) > 4:
+            # 粗体行（可能是小标题）
+            flush_paragraph()
+            content = stripped[2:-2]
+            html_parts.append(f'<div><b>{content}</b></div>')
         else:
-            # 普通文本
-            current_paragraph.append(line.replace('**', '').strip())
+            # 普通文本 - 处理行内格式
+            processed = line.replace('**', '')
+            # 检查是否是代码行（4空格缩进）
+            if line.startswith('    ') or line.startswith('\t'):
+                flush_paragraph()
+                html_parts.append(f'<div><tt>{html.escape(processed.strip())}</tt></div>')
+            else:
+                current_paragraph.append(processed)
 
-    if current_paragraph:
-        html_parts.append(' '.join(current_paragraph))
-
-    html_parts.append('</div>')
-    html = ''.join(html_parts)
+    # 处理剩余的段落
+    flush_paragraph()
     
-    # 清理多余的 <br>
-    html = html.replace('<br><br><br>', '<br><br>')
-    html = html.replace('<br><br><br>', '<br><br>')
-
+    # 清理多余的空行
+    html = '\n'.join(html_parts)
+    
     return html
 
 
@@ -174,6 +216,7 @@ def build_metadata_html(note_title, location, description, date, tags, slug):
         tag_list = [t.strip() for t in tags_formatted.split(',')]
         tags_formatted = ' , '.join(tag_list)
     
+    # 标题使用 <h1> 包裹，与 Apple Notes 原生格式一致
     html = f'''<div><b><h1>{note_title}</h1></b></div>
 <div><object><table cellspacing="0" cellpadding="0" style="border-collapse: collapse; direction: ltr">
 <tbody>
@@ -191,7 +234,8 @@ def build_metadata_html(note_title, location, description, date, tags, slug):
 <tr><td valign="top" style="border-style: solid; border-width: 1.0px 1.0px 1.0px 1.0px; border-color: #ccc; padding: 3.0px 5.0px 3.0px 5.0px; min-width: 70px"><div>slug</div>
 </td><td valign="top" style="border-style: solid; border-width: 1.0px 1.0px 1.0px 1.0px; border-color: #ccc; padding: 3.0px 5.0px 3.0px 5.0px; min-width: 70px"><div>{slug}</div></td></tr>
 </tbody>
-</table></object><br></div>'''
+</table></object></div>
+<div><br></div>'''
     return html
 
 
